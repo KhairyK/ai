@@ -1,158 +1,81 @@
-/**
- * LLM Chat App Frontend
- *
- * Handles the chat UI interactions and communication with the backend API.
- */
+(() => {
+  const chatMessages = document.getElementById("chat-messages");
+  const userInput = document.getElementById("user-input");
+  const sendButton = document.getElementById("send-button");
+  const typingIndicator = document.getElementById("typing-indicator");
 
-// DOM elements
-const chatMessages = document.getElementById("chat-messages");
-const userInput = document.getElementById("user-input");
-const sendButton = document.getElementById("send-button");
-const typingIndicator = document.getElementById("typing-indicator");
+  const messages = [];
 
-// Chat state
-let chatHistory = [
-  {
-    role: "assistant",
-    content:
-      "Hello! I'm an LLM chat app powered by Cloudflare Workers AI. How can I help you today?",
-  },
-];
-let isProcessing = false;
+  function createMessageBubble(text, role) {
+    const wrapper = document.createElement("div");
+    wrapper.className =
+      "message p-3 rounded " +
+      (role === "user"
+        ? "user-message bg-primary text-white align-self-end"
+        : "assistant-message bg-secondary-subtle align-self-start");
 
-// Auto-resize textarea as user types
-userInput.addEventListener("input", function () {
-  this.style.height = "auto";
-  this.style.height = this.scrollHeight + "px";
-});
+    const content = document.createElement("div");
+    content.className = "markdown-body";
+    content.innerHTML = marked.parse(text);
 
-// Send message on Enter (without Shift)
-userInput.addEventListener("keydown", function (e) {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-});
+    wrapper.appendChild(content);
 
-// Send button click handler
-sendButton.addEventListener("click", sendMessage);
-
-/**
- * Sends a message to the chat API and processes the response
- */
-async function sendMessage() {
-  const message = userInput.value.trim();
-
-  // Don't send empty messages
-  if (message === "" || isProcessing) return;
-
-  // Disable input while processing
-  isProcessing = true;
-  userInput.disabled = true;
-  sendButton.disabled = true;
-
-  // Add user message to chat
-  addMessageToChat("user", message);
-
-  // Clear input
-  userInput.value = "";
-  userInput.style.height = "auto";
-
-  // Show typing indicator
-  typingIndicator.classList.add("visible");
-
-  // Add message to history
-  chatHistory.push({ role: "user", content: message });
-
-  try {
-    // Create new assistant response element
-    const assistantMessageEl = document.createElement("div");
-    assistantMessageEl.className = "message assistant-message";
-    assistantMessageEl.innerHTML = "<p></p>";
-    chatMessages.appendChild(assistantMessageEl);
-
-    // Scroll to bottom
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-
-    // Send request to API
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messages: chatHistory,
-      }),
+    wrapper.querySelectorAll("pre code").forEach((block) => {
+      hljs.highlightElement(block);
     });
 
-    // Handle errors
-    if (!response.ok) {
-      throw new Error("Failed to get response");
-    }
-
-    // Process streaming response
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let responseText = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-
-      if (done) {
-        break;
-      }
-
-      // Decode chunk
-      const chunk = decoder.decode(value, { stream: true });
-
-      // Process SSE format
-      const lines = chunk.split("\n");
-      for (const line of lines) {
-        try {
-          const jsonData = JSON.parse(line);
-          if (jsonData.response) {
-            // Append new content to existing text
-            responseText += jsonData.response;
-            assistantMessageEl.querySelector("p").textContent = responseText;
-
-            // Scroll to bottom
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-          }
-        } catch (e) {
-          console.error("Error parsing JSON:", e);
-        }
-      }
-    }
-
-    // Add completed response to chat history
-    chatHistory.push({ role: "assistant", content: responseText });
-  } catch (error) {
-    console.error("Error:", error);
-    addMessageToChat(
-      "assistant",
-      "Sorry, there was an error processing your request.",
-    );
-  } finally {
-    // Hide typing indicator
-    typingIndicator.classList.remove("visible");
-
-    // Re-enable input
-    isProcessing = false;
-    userInput.disabled = false;
-    sendButton.disabled = false;
-    userInput.focus();
+    return wrapper;
   }
-}
 
-/**
- * Helper function to add message to chat
- */
-function addMessageToChat(role, content) {
-  const messageEl = document.createElement("div");
-  messageEl.className = `message ${role}-message`;
-  messageEl.innerHTML = `<p>${content}</p>`;
-  chatMessages.appendChild(messageEl);
+  function appendMessage(text, role) {
+    const bubble = createMessageBubble(text, role);
+    chatMessages.appendChild(bubble);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
 
-  // Scroll to bottom
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
+  async function sendMessage() {
+    const content = userInput.value.trim();
+    if (!content) return;
+
+    userInput.value = "";
+    appendMessage(content, "user");
+    messages.push({ role: "user", content });
+
+    typingIndicator.classList.add("visible");
+    sendButton.disabled = true;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages }),
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+      const reply =
+        data.response ||
+        data.output_text ||
+        "⚠️ No response from AI.";
+
+      appendMessage(reply, "assistant");
+      messages.push({ role: "assistant", content: reply });
+    } catch (err) {
+      console.error(err);
+      appendMessage("❌ Failed to talk to AI.", "assistant");
+    } finally {
+      typingIndicator.classList.remove("visible");
+      sendButton.disabled = false;
+    }
+  }
+
+  sendButton.addEventListener("click", sendMessage);
+
+  userInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+})();
