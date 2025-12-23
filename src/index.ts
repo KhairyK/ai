@@ -3,7 +3,7 @@
  */
 import { Env, ChatMessage } from "./types";
 
-const MODEL_ID = "gpt-oss-120b";
+const MODEL_ID = "@cf/qwen/qwen1.5-7b-chat";
 
 const SYSTEM_PROMPT =
   "You are a helpful, friendly assistant. Provide concise and accurate responses.";
